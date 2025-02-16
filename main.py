@@ -19,6 +19,8 @@ fake_users_db = {
     "futurecore": {"username": "futurecore", "password": hash_password("securepassword")}
 }
 
+# quiero saber como se hace esto
+
 
 # Login endpoint (JWT authentication)
 @app.post("/login")
