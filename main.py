@@ -1,53 +1,58 @@
-from datetime import timedelta
+from fastapi import FastAPI
 
-from fastapi import FastAPI, Depends, HTTPException
+from app.api.routes import users, auth
+from app.database import reset_database, Base, engine
 
-from app.auth import create_access_token, verify_token, hash_password, verify_password
-from pydantic import BaseModel
+# Ensure database is reset before FastAPI starts (Comment out if you don't want to reset the database)
+reset_database()
 
+# Recreate tables
+Base.metadata.create_all(bind=engine)
+
+# Initialize FastAPI app
 app = FastAPI()
 
-
-# User login model
-class UserLogin(BaseModel):
-    username: str
-    password: str
-
-
-# Mock user database (hashed password)
-fake_users_db = {
-    "futurecore": {"username": "futurecore", "password": hash_password("securepassword")}
+# Define JWT Security for Swagger UI
+security_scheme = {
+    "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+    }
 }
 
-# quiero saber como se hace esto
+# Override OpenAPI to include JWT security
+_openapi_schema = None
 
 
-# Login endpoint (JWT authentication)
-@app.post("/login")
-async def login(user: UserLogin):
-    # Validate user
-    if user.username not in fake_users_db or not verify_password(user.password,
-                                                                 fake_users_db[user.username]["password"]):
-        raise HTTPException(status_code=400, detail="Invalid username or password")
+# Since I'm dealing with the router, I need to manually force the Authorize Setup
+def custom_openapi():
+    global _openapi_schema
+    if _openapi_schema is None:
+        openapi_schema = app.openapi()
+        openapi_schema["components"] = {
+            "securitySchemes": {
+                "BearerAuth": security_scheme["BearerAuth"]
+            }
+        }
 
-    # Generate JWT token
-    access_token_expires = timedelta(minutes=30)
-    access_token = create_access_token({"sub": user.username}, access_token_expires)
+        # Apply security globally
+        for path in openapi_schema["paths"].values():
+            for method in path.values():
+                method["security"] = [{"BearerAuth": []}]
 
-    return {"access_token": access_token, "token_type": "bearer"}
+        _openapi_schema = openapi_schema  # Cache OpenAPI schema
 
-
-# Secure API endpoint (Requires authentication)
-@app.get("/secure-data", dependencies=[Depends(verify_token)])
-async def secure_data():
-    return {"message": "Secure data accessible"}
+    return _openapi_schema
 
 
+# Register routes using Facade, each endpoint is prefixed with /api
+# and wee need to add each of the routes to the app using app.include_router()
+app.include_router(users.router, prefix="/api", tags=["Users"])
+app.include_router(auth.router, prefix="/api", tags=["Authorization"])
+
+
+# Root Endpoint (for demo purposes)
 @app.get("/")
-async def root():
-    return {"message": "Hello World"}
-
-
-@app.get("/hello/{name}")
-async def say_hello(name: str):
-    return {"message": f"Hello {name}"}
+def read_root():
+    return {"message": "Welcome to the Bill MAP API"}
